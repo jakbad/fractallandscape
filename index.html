@@ -1,1 +1,252 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Fractal Mountain Landscape</title>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            background: linear-gradient(to bottom, #87CEEB, #98FB98);
+        }
+        canvas {
+            display: block;
+        }
+        .controls {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            background: rgba(255, 255, 255, 0.8);
+            padding: 10px;
+            border-radius: 5px;
+            font-family: Arial, sans-serif;
+            font-size: 12px;
+        }
+        .controls label {
+            display: block;
+            margin-bottom: 5px;
+        }
+        .controls input {
+            width: 100px;
+        }
+    </style>
+</head>
+<body>
+    <div class="controls">
+        <label>Max Height: <input type="range" id="maxHeight" min="10" max="200" value="50" step="5"></label>
+        <label>Octaves: <input type="range" id="octaves" min="1" max="10" value="6" step="1"></label>
+        <label>Persistence: <input type="range" id="persistence" min="0.1" max="1" value="0.5" step="0.1"></label>
+        <label>Scale: <input type="range" id="scale" min="0.001" max="0.1" value="0.01" step="0.001"></label>
+        <label>Camera Speed: <input type="range" id="cameraSpeed" min="1" max="500" value="10" step="1"></label>
+        <label>Camera Height Offset: <input type="range" id="cameraHeightOffset" min="10" max="200" value="50" step="5"></label>
+        <label>Camera Pitch Angle: <input type="range" id="cameraPitch" min="-30" max="30" value="0" step="1"></label>
+    </div>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script>
+        // Simple Perlin-like noise function
+        class Noise {
+            constructor() {
+                this.grad3 = [[1,1,0],[-1,1,0],[1,-1,0],[-1,-1,0],
+                             [1,0,1],[-1,0,1],[1,0,-1],[-1,0,-1],
+                             [0,1,1],[0,-1,1],[0,1,-1],[0,-1,-1]];
+                this.p = [];
+                for (let i = 0; i < 256; i++) {
+                    this.p[i] = Math.floor(Math.random() * 256);
+                }
+                this.perm = [];
+                for (let i = 0; i < 512; i++) {
+                    this.perm[i] = this.p[i & 255];
+                }
+            }
+
+            dot(g, x, y, z) {
+                return g[0] * x + g[1] * y + g[2] * z;
+            }
+
+            mix(a, b, t) {
+                return (1 - t) * a + t * b;
+            }
+
+            fade(t) {
+                return t * t * t * (t * (t * 6 - 15) + 10);
+            }
+
+            noise(x, y, z) {
+                let X = Math.floor(x) & 255;
+                let Y = Math.floor(y) & 255;
+                let Z = Math.floor(z) & 255;
+                x -= Math.floor(x);
+                y -= Math.floor(y);
+                z -= Math.floor(z);
+                let gi000 = this.perm[X + this.perm[Y + this.perm[Z]]] % 12;
+                let gi001 = this.perm[X + this.perm[Y + this.perm[Z + 1]]] % 12;
+                let gi010 = this.perm[X + this.perm[Y + 1 + this.perm[Z]]] % 12;
+                let gi011 = this.perm[X + this.perm[Y + 1 + this.perm[Z + 1]]] % 12;
+                let gi100 = this.perm[X + 1 + this.perm[Y + this.perm[Z]]] % 12;
+                let gi101 = this.perm[X + 1 + this.perm[Y + this.perm[Z + 1]]] % 12;
+                let gi110 = this.perm[X + 1 + this.perm[Y + 1 + this.perm[Z]]] % 12;
+                let gi111 = this.perm[X + 1 + this.perm[Y + 1 + this.perm[Z + 1]]] % 12;
+                let n000 = this.dot(this.grad3[gi000], x, y, z);
+                let n100 = this.dot(this.grad3[gi100], x - 1, y, z);
+                let n010 = this.dot(this.grad3[gi010], x, y - 1, z);
+                let n110 = this.dot(this.grad3[gi110], x - 1, y - 1, z);
+                let n001 = this.dot(this.grad3[gi001], x, y, z - 1);
+                let n101 = this.dot(this.grad3[gi101], x - 1, y, z - 1);
+                let n011 = this.dot(this.grad3[gi011], x, y - 1, z - 1);
+                let n111 = this.dot(this.grad3[gi111], x - 1, y - 1, z - 1);
+                let u = this.fade(x);
+                let v = this.fade(y);
+                let w = this.fade(z);
+                let nx00 = this.mix(n000, n100, u);
+                let nx01 = this.mix(n001, n101, u);
+                let nx10 = this.mix(n010, n110, u);
+                let nx11 = this.mix(n011, n111, u);
+                let nxy0 = this.mix(nx00, nx10, v);
+                let nxy1 = this.mix(nx01, nx11, v);
+                let nxyz = this.mix(nxy0, nxy1, w);
+                return nxyz;
+            }
+
+            fractalNoise(x, y, z, octaves, persistence, scale) {
+                let value = 0;
+                let amplitude = 1;
+                let frequency = scale;
+                for (let i = 0; i < octaves; i++) {
+                    value += this.noise(x * frequency, y * frequency, z * frequency) * amplitude;
+                    amplitude *= persistence;
+                    frequency *= 2;
+                }
+                return value;
+            }
+        }
+
+        // Parameters
+        let maxHeight = 50;
+        let octaves = 6;
+        let persistence = 0.5;
+        let scale = 0.01;
+        let cameraSpeed = 10;
+        let cameraHeightOffset = 50;
+        let cameraPitch = 0; // degrees
+        let terrainOffset = 0;
+        const chunkSize = 1000;
+
+        // Initialize scene
+        const scene = new THREE.Scene();
+        const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+        const renderer = new THREE.WebGLRenderer();
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        document.body.appendChild(renderer.domElement);
+
+        // Add fog for atmosphere
+        scene.fog = new THREE.Fog(0x87CEEB, 100, 500);
+
+        // Create terrain
+        const geometry = new THREE.PlaneGeometry(10000, 10000, 256, 256);
+        const material = new THREE.MeshLambertMaterial({ color: 0x8B4513, wireframe: false });
+        const terrain = new THREE.Mesh(geometry, material);
+        terrain.rotation.x = -Math.PI / 2;
+        scene.add(terrain);
+
+        // Generate fractal height
+        const noise = new Noise();
+        const vertices = geometry.attributes.position.array;
+        for (let i = 0; i < vertices.length; i += 3) {
+            const x = vertices[i] / 10;
+            const y = vertices[i + 1] / 10;
+            const height = noise.fractalNoise(x, y, 0, 6, 0.5, 0.01) * 50;
+            vertices[i + 2] = height;
+        }
+        geometry.attributes.position.needsUpdate = true;
+        geometry.computeVertexNormals();
+
+        // Function to regenerate terrain
+        function regenerateTerrain() {
+            const vertices = geometry.attributes.position.array;
+            for (let i = 0; i < vertices.length; i += 3) {
+                const x = vertices[i] / 10;
+                const y = (vertices[i + 1] + terrainOffset * chunkSize) / 10;
+                const height = noise.fractalNoise(x, y, 0, octaves, persistence, scale) * maxHeight;
+                vertices[i + 2] = height;
+            }
+            geometry.attributes.position.needsUpdate = true;
+            geometry.computeVertexNormals();
+        }
+
+        // Add event listeners for controls
+        document.getElementById('maxHeight').addEventListener('input', (e) => {
+            maxHeight = parseFloat(e.target.value);
+            regenerateTerrain();
+        });
+        document.getElementById('octaves').addEventListener('input', (e) => {
+            octaves = parseInt(e.target.value);
+            regenerateTerrain();
+        });
+        document.getElementById('persistence').addEventListener('input', (e) => {
+            persistence = parseFloat(e.target.value);
+            regenerateTerrain();
+        });
+        document.getElementById('scale').addEventListener('input', (e) => {
+            scale = parseFloat(e.target.value);
+            regenerateTerrain();
+        });
+        document.getElementById('cameraSpeed').addEventListener('input', (e) => {
+            cameraSpeed = parseFloat(e.target.value);
+        });
+        document.getElementById('cameraHeightOffset').addEventListener('input', (e) => {
+            cameraHeightOffset = parseFloat(e.target.value);
+        });
+        document.getElementById('cameraPitch').addEventListener('input', (e) => {
+            cameraPitch = parseFloat(e.target.value);
+        });
+
+        // Add lighting
+        const ambientLight = new THREE.AmbientLight(0x404040, 0.6);
+        scene.add(ambientLight);
+        const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
+        directionalLight.position.set(50, 50, 50);
+        scene.add(directionalLight);
+
+        // Camera path
+        let time = 0;
+        let lastTime = performance.now();
+
+        function animate() {
+            requestAnimationFrame(animate);
+
+            const currentTime = performance.now();
+            const deltaTime = (currentTime - lastTime) / 1000; // seconds
+            lastTime = currentTime;
+
+            // Move camera forward
+            camera.position.z -= cameraSpeed * deltaTime * 60; // scale to ~60fps
+            camera.position.y = cameraHeightOffset;
+
+            // Shift terrain to create infinite landscape
+            if (camera.position.z < terrain.position.z - chunkSize / 2) {
+                terrainOffset += 1;
+                terrain.position.z += chunkSize;
+                regenerateTerrain();
+            }
+
+            // Set camera rotation
+            camera.rotation.x = -cameraPitch * Math.PI / 180;
+            camera.rotation.y = 0;
+            camera.rotation.z = 0;
+
+            renderer.render(scene, camera);
+        }
+
+        animate();
+
+        // Handle window resize
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+    </script>
+</body>
+</html>
 
